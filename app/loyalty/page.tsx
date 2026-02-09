@@ -11,7 +11,9 @@ import {
   PERK_PREFERENCES,
   VIBE_PREFERENCES,
   LOCATION_PREFERENCES,
+  gql,
 } from '@akin-travel/partner-sdk';
+import { useMutation } from '@apollo/client';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import Image from 'next/image';
 import { Square, CheckSquare, CheckCircle } from 'lucide-react';
@@ -186,16 +188,34 @@ function ReferralQRCode({ referralCode, size = 180 }: { referralCode: string; si
 }
 
 // ============================================================================
+// GraphQL Mutation for Preferences
+// ============================================================================
+const UPDATE_PREFERENCES = gql`
+  mutation UpdateMember($id: ID!, $input: UpdateMemberInput!) {
+    updateMember(id: $id, input: $input) {
+      id
+      vibePreference
+      perkPreferences
+      placeTypePreferences
+    }
+  }
+`;
+
+// ============================================================================
 // Preferences Step Form (3-step stepper matching website)
 // ============================================================================
 type PreferencesStep = 'perks' | 'placeTypes' | 'vibe';
 
 function PreferencesStepForm({ onComplete }: { onComplete: () => void }) {
   const { t } = useI18n();
+  const { member } = useAkinAuth();
   const [step, setStep] = useState<PreferencesStep>('perks');
   const [selectedPerks, setSelectedPerks] = useState<string[]>([]);
   const [selectedPlaceTypes, setSelectedPlaceTypes] = useState<string[]>([]);
   const [vibePreference, setVibePreference] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const [updatePreferences] = useMutation(UPDATE_PREFERENCES);
 
   const isCompleted = (s: PreferencesStep) => {
     if (s === 'perks') return selectedPerks.length > 0;
@@ -216,13 +236,30 @@ function PreferencesStepForm({ onComplete }: { onComplete: () => void }) {
     );
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (step === 'perks') setStep('placeTypes');
     else if (step === 'placeTypes') setStep('vibe');
     else if (step === 'vibe') {
-      // Save preferences here (API call would go here)
-      console.log('Saving preferences:', { selectedPerks, selectedPlaceTypes, vibePreference });
-      onComplete();
+      if (!member?.id) return;
+
+      setIsSaving(true);
+      try {
+        await updatePreferences({
+          variables: {
+            id: member.id,
+            input: {
+              vibePreference,
+              perkPreferences: selectedPerks,
+              placeTypePreferences: selectedPlaceTypes,
+            },
+          },
+        });
+        onComplete();
+      } catch (error) {
+        console.error('Failed to save preferences:', error);
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -271,7 +308,7 @@ function PreferencesStepForm({ onComplete }: { onComplete: () => void }) {
             return (
               <Card
                 key={perk.id}
-                className={`border-2 border-dashed cursor-pointer transition-all rounded-xl ${
+                className={`border-2 cursor-pointer transition-all rounded-xl ${
                   isSelected ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary/50'
                 }`}
                 onClick={() => togglePerk(perk.id)}
@@ -305,7 +342,7 @@ function PreferencesStepForm({ onComplete }: { onComplete: () => void }) {
             return (
               <Card
                 key={place.id}
-                className={`border-2 border-dashed cursor-pointer transition-all rounded-xl ${
+                className={`border-2 cursor-pointer transition-all rounded-xl ${
                   isSelected ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary/50'
                 }`}
                 onClick={() => togglePlaceType(place.id)}
@@ -337,7 +374,7 @@ function PreferencesStepForm({ onComplete }: { onComplete: () => void }) {
             return (
               <Card
                 key={vibe.id}
-                className={`border-2 border-dashed cursor-pointer transition-all rounded-xl ${
+                className={`border-2 cursor-pointer transition-all rounded-xl ${
                   isSelected ? 'border-primary bg-primary/5' : 'border-muted hover:border-primary/50'
                 }`}
                 onClick={() => setVibePreference(vibe.id)}
@@ -365,10 +402,10 @@ function PreferencesStepForm({ onComplete }: { onComplete: () => void }) {
       {/* Next Button */}
       <Button
         onClick={handleNext}
-        disabled={!isCompleted(step)}
+        disabled={!isCompleted(step) || isSaving}
         className="w-full"
       >
-        {step === 'vibe' ? t('loyalty.drawer.savePreferences') : t('common.next')}
+        {isSaving ? t('common.loading') : step === 'vibe' ? t('loyalty.drawer.savePreferences') : t('common.next')}
       </Button>
     </div>
   );
@@ -377,7 +414,52 @@ function PreferencesStepForm({ onComplete }: { onComplete: () => void }) {
 // ============================================================================
 // Drawer Tab Type
 // ============================================================================
-type DrawerTab = 'add-stay' | 'refer-friend' | 'preferences';
+type DrawerTab = 'add-stay' | 'refer-friend' | 'preferences' | 'rewards';
+
+// ============================================================================
+// Available Rewards by Tier
+// ============================================================================
+const TIER_REWARDS: Record<string, { id: string; text: string; icon: string }[]> = {
+  TIER1: [
+    { id: 'welcome-drink', text: 'Welcome Drink', icon: '🍹' },
+    { id: 'late-checkout', text: 'Late Checkout (1hr)', icon: '🕐' },
+  ],
+  TIER2: [
+    { id: 'welcome-drink', text: 'Welcome Drink', icon: '🍹' },
+    { id: 'late-checkout', text: 'Late Checkout (2hrs)', icon: '🕐' },
+    { id: 'room-upgrade', text: 'Room Upgrade', icon: '⬆️' },
+    { id: 'breakfast', text: 'Free Breakfast', icon: '🥐' },
+  ],
+  TIER3: [
+    { id: 'welcome-drink', text: 'Welcome Drink', icon: '🍹' },
+    { id: 'late-checkout', text: 'Late Checkout (3hrs)', icon: '🕐' },
+    { id: 'room-upgrade', text: 'Room Upgrade', icon: '⬆️' },
+    { id: 'breakfast', text: 'Free Breakfast', icon: '🥐' },
+    { id: 'spa-credit', text: '$20 Spa Credit', icon: '💆' },
+    { id: 'minibar', text: 'Complimentary Minibar', icon: '🍫' },
+  ],
+  TIER4: [
+    { id: 'welcome-drink', text: 'Premium Welcome Drink', icon: '🥂' },
+    { id: 'late-checkout', text: 'Late Checkout (4hrs)', icon: '🕐' },
+    { id: 'room-upgrade', text: 'Guaranteed Upgrade', icon: '⬆️' },
+    { id: 'breakfast', text: 'Full Breakfast Buffet', icon: '🥐' },
+    { id: 'spa-credit', text: '$50 Spa Credit', icon: '💆' },
+    { id: 'minibar', text: 'Premium Minibar', icon: '🍫' },
+    { id: 'airport-transfer', text: 'Airport Transfer', icon: '🚗' },
+    { id: 'experience', text: 'Local Experience', icon: '🎭' },
+  ],
+};
+
+// Helper to get max perks allowed for tier
+function getMaxPerksForTier(tier: string): number {
+  switch (tier) {
+    case 'TIER1': return 1;
+    case 'TIER2': return 2;
+    case 'TIER3': return 3;
+    case 'TIER4': return 4;
+    default: return 1;
+  }
+}
 
 // ============================================================================
 // Main Component
@@ -391,10 +473,15 @@ export default function LoyaltyPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>('add-stay');
 
+  // Rewards selection state
+  const [selectedBooking, setSelectedBooking] = useState<{ id: string; propertyName: string; checkIn: Date; perks?: Array<{ text: string; icon?: string }> } | null>(null);
+  const [selectedRewards, setSelectedRewards] = useState<string[]>([]);
+  const [savingRewards, setSavingRewards] = useState(false);
+
   // Action handlers
   const handleBookNow = () => window.open(`https://viajerohostels.com/${locale || 'en'}`, '_blank');
 
-  const handleAddPastStay = () => {
+  const handleAddStay = () => {
     setDrawerTab('add-stay');
     setDrawerOpen(true);
   };
@@ -407,6 +494,53 @@ export default function LoyaltyPage() {
   const handleSetPreferences = () => {
     setDrawerTab('preferences');
     setDrawerOpen(true);
+  };
+
+  const handleSelectRewards = (booking: { id: string; propertyName?: string; checkIn: Date; perks?: Array<{ text: string; icon?: string }> }) => {
+    setSelectedBooking({
+      id: booking.id,
+      propertyName: booking.propertyName || 'Property',
+      checkIn: booking.checkIn,
+      perks: booking.perks,
+    });
+    // Initialize with existing perks
+    setSelectedRewards(booking.perks?.map(p => p.text) || []);
+    setDrawerTab('rewards');
+    setDrawerOpen(true);
+  };
+
+  const handleToggleReward = (rewardText: string) => {
+    const memberTier = member?.tierAtPartner || 'TIER1';
+    const maxPerks = getMaxPerksForTier(memberTier);
+
+    setSelectedRewards(prev => {
+      if (prev.includes(rewardText)) {
+        return prev.filter(r => r !== rewardText);
+      }
+      if (prev.length >= maxPerks) {
+        // Replace the oldest selection
+        return [...prev.slice(1), rewardText];
+      }
+      return [...prev, rewardText];
+    });
+  };
+
+  const handleSaveRewards = async () => {
+    if (!selectedBooking) return;
+
+    setSavingRewards(true);
+    try {
+      // TODO: Call API to save rewards
+      // For now, just simulate a save
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('Saving rewards for booking:', selectedBooking.id, selectedRewards);
+      setDrawerOpen(false);
+      setSelectedBooking(null);
+    } catch (error) {
+      console.error('Failed to save rewards:', error);
+    } finally {
+      setSavingRewards(false);
+    }
   };
 
   // Redirect if not authenticated
@@ -434,7 +568,7 @@ export default function LoyaltyPage() {
         {/* 1. Loyalty Card */}
         <LoyaltyCard
           onBookNow={handleBookNow}
-          onAddPastStay={handleAddPastStay}
+          onAddStay={handleAddStay}
           onReferFriend={handleReferFriend}
           onSetPreferences={handleSetPreferences}
         >
@@ -449,7 +583,7 @@ export default function LoyaltyPage() {
             lifetimeStats,
             isLoading,
             onBookNow,
-            onAddPastStay,
+            onAddStay,
             onReferFriend,
             onSetPreferences,
           }) => {
@@ -492,27 +626,27 @@ export default function LoyaltyPage() {
                           <Button
                             variant="outline"
                             onClick={onBookNow}
-                            className="w-full justify-center border-2 border-dashed bg-transparent hover:bg-white/10"
+                            className="w-full justify-center border-2 bg-white/10 hover:bg-transparent"
                             style={{ borderColor: textColor, color: textColor }}
                           >
                             {t('loyalty.tierCard.bookNow')}
                           </Button>
                         )}
-                        {onAddPastStay && (
+                        {onAddStay && (
                           <Button
                             variant="outline"
-                            onClick={onAddPastStay}
-                            className="w-full justify-center border-2 border-dashed bg-transparent hover:bg-white/10"
+                            onClick={onAddStay}
+                            className="w-full justify-center border-2 bg-white/10 hover:bg-transparent"
                             style={{ borderColor: textColor, color: textColor }}
                           >
-                            {t('loyalty.tierCard.addPastStay')}
+                            {t('loyalty.tierCard.addStay')}
                           </Button>
                         )}
                         {onReferFriend && (
                           <Button
                             variant="outline"
                             onClick={onReferFriend}
-                            className="w-full justify-center border-2 border-dashed bg-transparent hover:bg-white/10"
+                            className="w-full justify-center border-2 bg-white/10 hover:bg-transparent"
                             style={{ borderColor: textColor, color: textColor }}
                           >
                             {t('loyalty.tierCard.referFriend')}
@@ -522,7 +656,7 @@ export default function LoyaltyPage() {
                           <Button
                             variant="outline"
                             onClick={onSetPreferences}
-                            className="w-full justify-center border-2 border-dashed bg-transparent hover:bg-white/10"
+                            className="w-full justify-center border-2 bg-white/10 hover:bg-transparent"
                             style={{ borderColor: textColor, color: textColor }}
                           >
                             {t('loyalty.tierCard.setPreferences')}
@@ -533,7 +667,7 @@ export default function LoyaltyPage() {
 
                     {/* DIVIDER */}
                     <div
-                      className="hidden lg:block w-px border-l-2 border-dashed opacity-30"
+                      className="hidden lg:block w-px border-l-2 opacity-30"
                       style={{ borderColor: textColor }}
                     />
 
@@ -595,7 +729,7 @@ export default function LoyaltyPage() {
                             </Badge>
                           )}
                         </div>
-                        <div className="border-t-2 border-dashed pt-4 opacity-30" style={{ borderColor: textColor }} />
+                        <div className="border-t-2 pt-4 opacity-30" style={{ borderColor: textColor }} />
                         <div className="grid grid-cols-2 gap-8 text-center pt-4">
                           <div>
                             <p className="text-xs opacity-70 mb-1">{t('loyalty.progress.originHostels')}</p>
@@ -712,8 +846,8 @@ export default function LoyaltyPage() {
                 ) : isEmpty ? (
                   <div className="text-center py-8 space-y-4">
                     <p className="text-muted-foreground">{t('loyalty.upcomingStays.empty')}</p>
-                    <Button variant="outline" onClick={handleAddPastStay}>
-                      {t('loyalty.tierCard.addPastStay')}
+                    <Button variant="outline" onClick={handleAddStay}>
+                      {t('loyalty.tierCard.addStay')}
                     </Button>
                   </div>
                 ) : (
@@ -724,6 +858,7 @@ export default function LoyaltyPage() {
                         <TableHead className="text-center">{t('loyalty.upcomingStays.nights')}</TableHead>
                         <TableHead>{t('loyalty.upcomingStays.property')}</TableHead>
                         <TableHead className="text-center">{t('loyalty.upcomingStays.status')}</TableHead>
+                        <TableHead className="text-center">{t('loyalty.upcomingStays.rewards') || 'Rewards'}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -743,6 +878,18 @@ export default function LoyaltyPage() {
                             >
                               {stay.status === 'CONFIRMED' ? 'Confirmed' : stay.status === 'PENDING' ? 'Pending' : stay.status}
                             </Badge>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleSelectRewards(stay)}
+                            >
+                              {stay.perks && stay.perks.length > 0
+                                ? `${stay.perks.length} Selected`
+                                : 'Select'
+                              }
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -769,8 +916,8 @@ export default function LoyaltyPage() {
                 ) : isEmpty ? (
                   <div className="text-center py-8 space-y-4">
                     <p className="text-muted-foreground">{t('loyalty.activityStatement.empty')}</p>
-                    <Button variant="outline" onClick={handleAddPastStay}>
-                      {t('loyalty.tierCard.addPastStay')}
+                    <Button variant="outline" onClick={handleAddStay}>
+                      {t('loyalty.tierCard.addStay')}
                     </Button>
                   </div>
                 ) : (
@@ -814,19 +961,89 @@ export default function LoyaltyPage() {
       </main>
 
       {/* Onboarding Drawer */}
-      <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
+      <Sheet open={drawerOpen} onOpenChange={(open) => {
+        setDrawerOpen(open);
+        if (!open) setSelectedBooking(null);
+      }}>
         <SheetContent side="right" className="w-full sm:max-w-lg p-6">
-          <SheetHeader>
-            <SheetTitle>{t('loyalty.drawer.title')}</SheetTitle>
-            <SheetDescription>{t('loyalty.drawer.subtitle')}</SheetDescription>
-          </SheetHeader>
+          {drawerTab === 'rewards' && selectedBooking ? (
+            <>
+              <SheetHeader>
+                <SheetTitle>{t('loyalty.drawer.selectRewards') || 'Select Your Rewards'}</SheetTitle>
+                <SheetDescription>
+                  {selectedBooking.propertyName} • {new Date(selectedBooking.checkIn).toLocaleDateString(locale || 'en', { month: 'short', day: 'numeric' })}
+                </SheetDescription>
+              </SheetHeader>
 
-          <Tabs value={drawerTab} onValueChange={(v) => setDrawerTab(v as DrawerTab)} className="mt-6">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="add-stay">{t('loyalty.drawer.addStay')}</TabsTrigger>
-              <TabsTrigger value="refer-friend">{t('loyalty.drawer.refer')}</TabsTrigger>
-              <TabsTrigger value="preferences">{t('loyalty.drawer.preferences')}</TabsTrigger>
-            </TabsList>
+              <div className="mt-6 space-y-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {t('loyalty.drawer.tier') || 'Your tier'}: <span className="font-medium text-foreground">{member?.tierDisplayName || 'Explorer'}</span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    {selectedRewards.length}/{getMaxPerksForTier(member?.tierAtPartner || 'TIER1')} {t('loyalty.drawer.selected') || 'selected'}
+                  </span>
+                </div>
+
+                <div className="grid gap-2">
+                  {TIER_REWARDS[member?.tierAtPartner || 'TIER1']?.map((reward) => {
+                    const isSelected = selectedRewards.includes(reward.text);
+                    return (
+                      <Card
+                        key={reward.id}
+                        className={`cursor-pointer transition-all ${
+                          isSelected ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
+                        }`}
+                        onClick={() => handleToggleReward(reward.text)}
+                      >
+                        <CardContent className="p-3 flex items-center gap-3">
+                          {isSelected ? (
+                            <CheckSquare className="w-5 h-5 text-primary flex-shrink-0" />
+                          ) : (
+                            <Square className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                          )}
+                          <span className="text-xl">{reward.icon}</span>
+                          <span className="text-sm font-medium">{reward.text}</span>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-4 space-y-2">
+                  <Button
+                    className="w-full"
+                    onClick={handleSaveRewards}
+                    disabled={savingRewards || selectedRewards.length === 0}
+                  >
+                    {savingRewards ? (t('common.saving') || 'Saving...') : (t('loyalty.drawer.saveRewards') || 'Save Rewards')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      setDrawerOpen(false);
+                      setSelectedBooking(null);
+                    }}
+                  >
+                    {t('common.cancel') || 'Cancel'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <SheetHeader>
+                <SheetTitle>{t('loyalty.drawer.title')}</SheetTitle>
+                <SheetDescription>{t('loyalty.drawer.subtitle')}</SheetDescription>
+              </SheetHeader>
+
+              <Tabs value={drawerTab} onValueChange={(v) => setDrawerTab(v as DrawerTab)} className="mt-6">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="add-stay">{t('loyalty.drawer.addStay')}</TabsTrigger>
+                  <TabsTrigger value="refer-friend">{t('loyalty.drawer.refer')}</TabsTrigger>
+                  <TabsTrigger value="preferences">{t('loyalty.drawer.preferences')}</TabsTrigger>
+                </TabsList>
 
             <TabsContent value="add-stay" className="mt-6 space-y-4">
               <div className="space-y-4">
@@ -895,6 +1112,8 @@ export default function LoyaltyPage() {
               <PreferencesStepForm onComplete={() => setDrawerOpen(false)} />
             </TabsContent>
           </Tabs>
+            </>
+          )}
         </SheetContent>
       </Sheet>
     </div>

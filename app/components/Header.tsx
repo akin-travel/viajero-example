@@ -20,13 +20,16 @@ export function Header() {
       <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
         {/* Logo */}
         <Link href="/">
-          <Image
-            src="https://storage.googleapis.com/dev-akin-images/partners/b8a131b2-c40d-42f3-8a23-604d74e99999/logo-1768787414812.png"
-            alt="Viajero"
-            width={120}
-            height={40}
-            className="h-10 w-auto"
-          />
+          <div className="bg-gray-800 rounded-lg px-3 py-1.5">
+            <Image
+              src="https://storage.googleapis.com/dev-akin-images/partners/b8a131b2-c40d-42f3-8a23-604d74e99999/viajero-logo.png"
+              alt="Viajero"
+              width={120}
+              height={47}
+              priority
+              className="h-8 w-auto"
+            />
+          </div>
         </Link>
 
         {/* Right side: Auth buttons + Menu */}
