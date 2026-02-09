@@ -19,7 +19,7 @@ export default function RootLayout({
           config={{
             partnerId: 'b8a131b2-c40d-42f3-8a23-604d74e99999',
             apiKey: process.env.NEXT_PUBLIC_AKIN_API_KEY!,
-            environment: 'development',
+            environment: 'staging',
             debug: process.env.NODE_ENV === 'development',
             i18n: {
               locale: 'en',
